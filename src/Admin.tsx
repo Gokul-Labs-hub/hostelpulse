@@ -33,8 +33,16 @@ function Roster({ supabase }: any) {
   const [msg, setMsg] = useState("");
 
   async function run() {
-    const [head, ...lines] = text.trim().split("\n").map((l) => l.split(",").map((c) => c.trim()));
-    const rows = lines.filter((l) => l.length > 1).map((l) => Object.fromEntries(head.map((k, i) => [k, l[i]])));
+    const all = text.trim().split(/\r?\n/).map((l) => l.split(",").map((c) => c.trim()));
+    const hasHeader = all[0]?.[0]?.toLowerCase() === "email";
+    const head = hasHeader ? all[0] : ["email", "full_name", "student_no", "floor", "room_no"];
+    const rows = (hasHeader ? all.slice(1) : all)
+      .filter((l) => l.length > 1)
+      .map((l) => Object.fromEntries(head.map((k, i) => [k, l[i]])));
+    if (rows.length === 0) {
+      setMsg("No student rows found. Each line needs: email,full name,student number,floor,room number");
+      return;
+    }
     const { data, error } = await supabase.rpc("import_roster", { p_hostel: hostel || hostels[0]?.id, p_rows: rows });
     setMsg(error ? error.message : `${data} students imported. Each gets their room automatically.`);
   }
