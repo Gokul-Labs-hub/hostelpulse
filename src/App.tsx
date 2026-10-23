@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import QrScanner from "qr-scanner";
+import Admin from "./Admin";
 
 // The anon (publishable) key is safe in the browser: Row Level Security protects the data.
 // NEVER put the service_role / secret key in this project.
@@ -57,6 +58,11 @@ function Home({ user }: any) {
   const attempt = useRef<any>(null);
   const gps = useRef<any>(null);
   const video = useRef<HTMLVideoElement>(null);
+  const [role, setRole] = useState("student");
+  const [showAdmin, setShowAdmin] = useState(false);
+  useEffect(() => {
+    supabase.from("profiles").select("role").eq("id", user.id).single().then(({ data }) => setRole(data?.role ?? "student"));
+  }, []);
 
   async function load() {
     const { data } = await supabase
@@ -133,6 +139,17 @@ function Home({ user }: any) {
     return () => scanner.destroy();
   }, [phase]);
 
+  if (showAdmin)
+    return (
+      <div>
+        <header>
+          <span>Admin</span>
+          <button className="link" onClick={() => setShowAdmin(false)}>Back</button>
+        </header>
+        <Admin supabase={supabase} me={user.id} />
+      </div>
+    );
+
   const present = history.filter((r) => ["present", "manual_present"].includes(r.status)).length;
   const pct = totalDays ? Math.round((100 * present) / totalDays) : 0;
 
@@ -140,6 +157,7 @@ function Home({ user }: any) {
     <div>
       <header>
         <span>{user.email}</span>
+        {role === "admin" && <button className="link" onClick={() => setShowAdmin(true)}>Admin</button>}
         <button className="link" onClick={() => supabase.auth.signOut()}>Sign out</button>
       </header>
 
