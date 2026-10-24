@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
+import QRCode from "qrcode";
 
 export default function Admin({ supabase, me }: any) {
   const [tab, setTab] = useState("roster");
   return (
     <div>
       <div className="card tabs">
-        {["roster", "hostel", "people"].map((t) => (
+        {["roster", "hostel", "qr", "people"].map((t) => (
           <button key={t} className={tab === t ? "" : "link"} onClick={() => setTab(t)}>{t}</button>
         ))}
       </div>
       {tab === "roster" && <Roster supabase={supabase} />}
       {tab === "hostel" && <HostelSettings supabase={supabase} />}
+      {tab === "qr" && <QrTab supabase={supabase} />}
       {tab === "people" && <People supabase={supabase} me={me} />}
     </div>
   );
@@ -129,6 +131,53 @@ function People({ supabase, me }: any) {
           </select>
         </label>
       ))}
+    </div>
+  );
+}
+
+async function sha256(s: string) {
+  const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+function QrTab({ supabase }: any) {
+  const [hostels] = useHostels(supabase);
+  const [hostel, setHostel] = useState("");
+  const [img, setImg] = useState("");
+  const [msg, setMsg] = useState("");
+  const id = hostel || hostels[0]?.id;
+  const name = hostels.find((h) => h.id === id)?.name;
+
+  async function rotate() {
+    if (!confirm("Every old printed QR code will stop working. Continue?")) return;
+    const secret = "HP-" + [...crypto.getRandomValues(new Uint8Array(16))].map((x) => x.toString(16).padStart(2, "0")).join("");
+    const { data, error } = await supabase.rpc("rotate_qr", { p_hostel: id, p_hash: await sha256(secret) });
+    if (error) return setMsg(error.message);
+    setImg(await QRCode.toDataURL(secret, { width: 900, margin: 2 }));
+    setMsg(`New QR code (version ${data}) is active. Print it now: it cannot be shown again.`);
+  }
+
+  return (
+    <div className="card">
+      <div className="noprint card">
+        <h2>Printable QR code</h2>
+        <select value={id ?? ""} onChange={(e) => setHostel(e.target.value)}>
+          {hostels.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+        </select>
+        <p className="note">
+          Anyone can photograph a printed QR code and share it, so treat it as one layer of checking. Create a new one if you think it has leaked.
+        </p>
+        <button onClick={rotate}>Create new QR code</button>
+        {msg && <p className="note">{msg}</p>}
+        {img && <button onClick={() => window.print()}>Print</button>}
+      </div>
+      {img && (
+        <div className="sheet">
+          <h1>{name}</h1>
+          <img src={img} alt="Attendance QR code" />
+          <p>Scan with the HostelPulse app to mark attendance</p>
+        </div>
+      )}
     </div>
   );
 }

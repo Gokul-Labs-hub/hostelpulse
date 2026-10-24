@@ -23,3 +23,10 @@ textarea { padding: 12px; border-radius: 10px; border: 1px solid #475569; backgr
 .who { display: grid; gap: 4px; padding: 10px 0; border-top: 1px solid #334155; font-size: 14px; }
 .actions { display: flex; gap: 8px; }
 button.small { padding: 8px 12px; font-size: 14px; }
+.sheet { text-align: center; }
+.sheet img { width: 100%; max-width: 420px; background: #fff; }
+@media print {
+  body { background: #fff; color: #000; }
+  header, .tabs, .noprint { display: none !important; }
+  .card { background: none; }
+}
