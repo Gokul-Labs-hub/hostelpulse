@@ -87,6 +87,8 @@ function Login() {
         </>
       )}
       {msg && <p className="note">{msg}</p>}
+      <p className="note">HostelPulse lets hostel residents confirm their nightly attendance.</p>
+      <p className="note">By signing in you agree to the <a href="/terms">Terms</a> and the <a href="/privacy">Privacy Policy</a>.</p>
     </div>
   );
 }
