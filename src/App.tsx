@@ -7,6 +7,8 @@ import Warden from "./Warden";
 // The anon (publishable) key is safe in the browser: Row Level Security protects the data.
 // NEVER put the service_role / secret key in this project.
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
+// Set VITE_DEMO=true in Vercel to show the simulated-network dropdown. Leave it unset for a real pilot.
+const DEMO = import.meta.env.VITE_DEMO === "true";
 
 export default function App() {
   const [session, setSession] = useState<any>(undefined);
@@ -54,6 +56,7 @@ function Home({ user }: any) {
   const [phase, setPhase] = useState("idle"); // idle | locating | scanning | sending
   const [result, setResult] = useState<any>(null);
   const [sim, setSim] = useState("hostel");
+  const [gpsNote, setGpsNote] = useState("");
   const [history, setHistory] = useState<any[]>([]);
   const [totalDays, setTotalDays] = useState(0);
   const attempt = useRef<any>(null);
@@ -93,6 +96,11 @@ function Home({ user }: any) {
           )
         : resolve(null)
     );
+    setGpsNote(
+      gps.current
+        ? `Location read (accuracy about ${Math.round(gps.current.accuracy)} m).`
+        : "Location was not available. Allow location for this site in your browser settings, or your attendance may be sent for review."
+    );
     const { data, error } = await supabase.functions.invoke("attendance", { body: { action: "start" } });
     if (error || !data?.ok) {
       setResult(data ?? { message: "Could not start. Please try again." });
@@ -112,7 +120,7 @@ function Home({ user }: any) {
         nonce: attempt.current.nonce,
         qr,
         gps: gps.current,
-        sim_network: sim, // demo only: the server ignores this unless simulated mode is on
+        sim_network: DEMO ? sim : undefined, // demo only: the server ignores this unless simulated mode is on
       },
     });
     setResult(error ? { message: "Could not submit. Please try again." } : data);
@@ -185,6 +193,7 @@ function Home({ user }: any) {
           </>
         ) : (
           <>
+            {DEMO && (
             <label>
               Demo only: simulated network
               <select value={sim} onChange={(e) => setSim(e.target.value)}>
@@ -193,12 +202,14 @@ function Home({ user }: any) {
                 <option value="unavailable">Unavailable</option>
               </select>
             </label>
+            )}
             <button disabled={phase !== "idle"} onClick={start}>
               {phase === "idle" ? "Mark attendance" : "Please wait..."}
             </button>
           </>
         )}
         {result && <p className={"result " + (result.level ?? "")}>{result.message}</p>}
+        {gpsNote && <p className="note">{gpsNote}</p>}
       </div>
 
       <div className="card">
