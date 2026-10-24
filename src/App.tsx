@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import QrScanner from "qr-scanner";
 import Admin from "./Admin";
 import Warden from "./Warden";
+import Exceptions from "./Exceptions";
 
 // The anon (publishable) key is safe in the browser: Row Level Security protects the data.
 // NEVER put the service_role / secret key in this project.
@@ -224,6 +225,8 @@ function Home({ user }: any) {
           ))}
         </ul>
       </div>
+
+      <Exceptions supabase={supabase} />
     </div>
   );
 }

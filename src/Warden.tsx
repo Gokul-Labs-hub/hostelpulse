@@ -81,6 +81,8 @@ export default function Warden({ supabase }: any) {
         </ul>
       </div>
 
+      <ExceptionQueue supabase={supabase} onDecided={load} />
+
       <div className="card">
         <input placeholder="Search name, student number or room" value={q} onChange={(e) => setQ(e.target.value)} />
         {shown.map((r) => (
@@ -106,6 +108,43 @@ export default function Warden({ supabase }: any) {
           </div>
         ))}
       </div>
+      {msg && <p className="note">{msg}</p>}
+    </div>
+  );
+}
+
+function ExceptionQueue({ supabase, onDecided }: any) {
+  const [items, setItems] = useState<any[]>([]);
+  const [msg, setMsg] = useState("");
+  const load = async () => {
+    const { data } = await supabase
+      .from("exception_requests")
+      .select("id, reason, created_at, profiles!student_id(full_name, student_no), attendance_windows(for_date)")
+      .eq("status", "pending")
+      .order("created_at");
+    setItems(data ?? []);
+  };
+  useEffect(() => { load(); }, []);
+  async function decide(id: string, approve: boolean) {
+    const { error } = await supabase.rpc("decide_exception", { p_id: id, p_approve: approve, p_note: "" });
+    setMsg(error ? error.message : "Saved.");
+    load();
+    onDecided();
+  }
+  if (items.length === 0 && !msg) return null;
+  return (
+    <div className="card">
+      <h2>Exception requests ({items.length})</h2>
+      {items.map((x) => (
+        <div className="who" key={x.id}>
+          <span>{x.profiles?.full_name} · {x.profiles?.student_no ?? "-"} · {x.attendance_windows?.for_date}</span>
+          <span className="note">{x.reason}</span>
+          <div className="actions">
+            <button className="small" onClick={() => decide(x.id, true)}>Approve</button>
+            <button className="small" onClick={() => decide(x.id, false)}>Deny</button>
+          </div>
+        </div>
+      ))}
       {msg && <p className="note">{msg}</p>}
     </div>
   );
