@@ -207,6 +207,7 @@ function Home({ user }: any) {
             <button disabled={phase !== "idle"} onClick={start}>
               {phase === "idle" ? "Mark attendance" : "Please wait..."}
             </button>
+            <p className="note">To confirm your attendance, this app checks your location and network connection.</p>
           </>
         )}
         {result && <p className={"result " + (result.level ?? "")}>{result.message}</p>}

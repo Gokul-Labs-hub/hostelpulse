@@ -6,12 +6,13 @@ export default function Admin({ supabase, me }: any) {
   return (
     <div>
       <div className="card tabs">
-        {["roster", "hostel", "qr", "people"].map((t) => (
+        {["roster", "hostel", "network", "qr", "people"].map((t) => (
           <button key={t} className={tab === t ? "" : "link"} onClick={() => setTab(t)}>{t}</button>
         ))}
       </div>
       {tab === "roster" && <Roster supabase={supabase} />}
       {tab === "hostel" && <HostelSettings supabase={supabase} />}
+      {tab === "network" && <NetworkTab supabase={supabase} />}
       {tab === "qr" && <QrTab supabase={supabase} />}
       {tab === "people" && <People supabase={supabase} me={me} />}
     </div>
@@ -179,5 +180,64 @@ function QrTab({ supabase }: any) {
         </div>
       )}
     </div>
+  );
+}
+
+function NetworkTab({ supabase }: any) {
+  const [info, setInfo] = useState<any>(null);
+  const [mode, setMode] = useState("");
+  const [label, setLabel] = useState("");
+  const [msg, setMsg] = useState("");
+  const [stats, setStats] = useState<any>(null);
+  const call = async (body: any) => (await supabase.functions.invoke("attendance", { body })).data;
+
+  async function load() {
+    setInfo(await call({ action: "net_list" }));
+    const { data: m } = await supabase.from("app_settings").select("value").eq("key", "verification_mode").single();
+    setMode(m?.value ?? "");
+    const { data: ev } = await supabase.from("verification_events").select("details").eq("signal", "network").order("created_at", { ascending: false }).limit(500);
+    const seen = (ev ?? []).filter((e: any) => e.details?.shadow_match !== null && e.details?.shadow_match !== undefined);
+    setStats({ yes: seen.filter((e: any) => e.details.shadow_match).length, no: seen.filter((e: any) => !e.details.shadow_match).length });
+  }
+  useEffect(() => { load(); }, []);
+
+  async function learn() {
+    const d = await call({ action: "net_learn", label });
+    setMsg(d?.ok ? `Learned ${d.ip}` : d?.message ?? "Could not learn this network.");
+    setLabel("");
+    load();
+  }
+  async function forget(ip: string) { await call({ action: "net_forget", ip }); load(); }
+  async function saveMode(v: string) {
+    await supabase.from("app_settings").update({ value: v }).eq("key", "verification_mode");
+    setMode(v);
+  }
+
+  return (
+    <>
+      <div className="card">
+        <h2>College network</h2>
+        <p className="note">Connect to the college Wi-Fi (not mobile data). The server currently sees you as: <b>{info?.ip || "..."}</b></p>
+        <input placeholder="Label, for example Hostel floor 2" value={label} onChange={(e) => setLabel(e.target.value)} />
+        <button onClick={learn}>Learn this network</button>
+        <p className="note">Repeat from other places (hostel floors, academic block). If the number stays the same everywhere, one is enough.</p>
+        {msg && <p className="note">{msg}</p>}
+        <ul>
+          {(info?.networks ?? []).map((n: any) => (
+            <li key={n.ip}><span>{n.label || "(no label)"} · {n.ip}</span><button className="link" onClick={() => forget(n.ip)}>Remove</button></li>
+          ))}
+        </ul>
+      </div>
+      <div className="card">
+        <h2>Network check mode</h2>
+        <select value={mode} onChange={(e) => saveMode(e.target.value)}>
+          <option value="simulated">simulated (demo only)</option>
+          <option value="ip_shadow">ip_shadow (record only, no effect)</option>
+          <option value="ip_enforce">ip_enforce (alert students off the college Wi-Fi)</option>
+        </select>
+        {stats && <p className="note">Shadow results so far: {stats.yes} matched, {stats.no} not matched.</p>}
+        <p className="note">Start with ip_shadow. Switch to ip_enforce when nearly everyone matches.</p>
+      </div>
+    </>
   );
 }
