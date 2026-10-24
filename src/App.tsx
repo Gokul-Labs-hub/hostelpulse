@@ -4,12 +4,12 @@ import QrScanner from "qr-scanner";
 import Admin from "./Admin";
 import Warden from "./Warden";
 import Exceptions from "./Exceptions";
+import Passkeys from "./Passkeys";
+import { startAuthentication } from "@simplewebauthn/browser";
 
 // The anon (publishable) key is safe in the browser: Row Level Security protects the data.
 // NEVER put the service_role / secret key in this project.
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
-// Set VITE_DEMO=true in Vercel to show the simulated-network dropdown. Leave it unset for a real pilot.
-const DEMO = import.meta.env.VITE_DEMO === "true";
 
 export default function App() {
   const [session, setSession] = useState<any>(undefined);
@@ -24,30 +24,68 @@ export default function App() {
 
 function Login() {
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [signup, setSignup] = useState(false);
+  const [code, setCode] = useState("");
+  const [step, setStep] = useState<"email" | "code">("email");
+  const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const clean = email.trim().toLowerCase();
 
-  async function go() {
+  async function sendCode() {
+    if (!/^\S+@\S+\.\S+$/.test(clean)) return setMsg("Enter a valid email address.");
+    setBusy(true);
     setMsg("");
-    const { error } = signup
-      ? await supabase.auth.signUp({ email, password, options: { data: { full_name: name } } })
-      : await supabase.auth.signInWithPassword({ email, password });
-    if (error) setMsg(error.message);
-    else if (signup) setMsg("Account created. If nothing happens, check your email to confirm it.");
+    // The same message is shown every time, so this form cannot be used to find out who is registered.
+    await supabase.auth.signInWithOtp({ email: clean, options: { shouldCreateUser: true } });
+    setStep("code");
+    setMsg("If this email is registered, a 6 digit code is on its way. It can take a minute.");
+    setBusy(false);
+  }
+
+  async function verify() {
+    setBusy(true);
+    setMsg("");
+    const { error } = await supabase.auth.verifyOtp({ email: clean, token: code.trim(), type: "email" });
+    if (error) setMsg("That code is not right or has expired. Try again, or go back and request a new one.");
+    setBusy(false);
+  }
+
+  const google = () => supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
+
+  async function passkeySignIn() {
+    setMsg("");
+    try {
+      const { data: o } = await supabase.functions.invoke("passkey", { body: { action: "auth_options" } });
+      if (!o?.options) return setMsg("Could not start. Please try again.");
+      const response = await startAuthentication({ optionsJSON: o.options });
+      const { data: v } = await supabase.functions.invoke("passkey", { body: { action: "auth_verify", challenge_id: o.challenge_id, response } });
+      if (!v?.token_hash) return setMsg(v?.message ?? "Could not sign you in.");
+      const { error } = await supabase.auth.verifyOtp({ token_hash: v.token_hash, type: "magiclink" });
+      if (error) setMsg("Could not sign you in. Please try again.");
+    } catch {
+      setMsg("Fingerprint or Face ID was cancelled, or is not set up on this device. Sign in another way, then add it.");
+    }
   }
 
   return (
     <div className="card">
       <h1>HostelPulse</h1>
-      {signup && <input placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} />}
-      <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
-      <input type="password" placeholder="Password (min 6 characters)" value={password} onChange={(e) => setPassword(e.target.value)} />
-      <button onClick={go}>{signup ? "Sign up" : "Sign in"}</button>
-      <button className="link" onClick={() => setSignup(!signup)}>
-        {signup ? "I already have an account" : "Create an account"}
-      </button>
+      <p className="note">Sign in with the email your warden registered for you.</p>
+      <button className="light" onClick={google}>Continue with Google</button>
+      {typeof window !== "undefined" && window.PublicKeyCredential && (
+        <button className="light" onClick={passkeySignIn}>Use fingerprint or Face ID</button>
+      )}
+      {step === "email" ? (
+        <>
+          <input type="email" autoComplete="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <button disabled={busy} onClick={sendCode}>Email me a code</button>
+        </>
+      ) : (
+        <>
+          <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="6 digit code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+          <button disabled={busy || code.length !== 6} onClick={verify}>Sign in</button>
+          <button className="link" onClick={() => { setStep("email"); setCode(""); setMsg(""); }}>Use a different email</button>
+        </>
+      )}
       {msg && <p className="note">{msg}</p>}
     </div>
   );
@@ -56,7 +94,6 @@ function Login() {
 function Home({ user }: any) {
   const [phase, setPhase] = useState("idle"); // idle | locating | scanning | sending
   const [result, setResult] = useState<any>(null);
-  const [sim, setSim] = useState("hostel");
   const [gpsNote, setGpsNote] = useState("");
   const [history, setHistory] = useState<any[]>([]);
   const [totalDays, setTotalDays] = useState(0);
@@ -121,7 +158,6 @@ function Home({ user }: any) {
         nonce: attempt.current.nonce,
         qr,
         gps: gps.current,
-        sim_network: DEMO ? sim : undefined, // demo only: the server ignores this unless simulated mode is on
       },
     });
     setResult(error ? { message: "Could not submit. Please try again." } : data);
@@ -194,16 +230,6 @@ function Home({ user }: any) {
           </>
         ) : (
           <>
-            {DEMO && (
-            <label>
-              Demo only: simulated network
-              <select value={sim} onChange={(e) => setSim(e.target.value)}>
-                <option value="hostel">On hostel network</option>
-                <option value="outside">Not on hostel network</option>
-                <option value="unavailable">Unavailable</option>
-              </select>
-            </label>
-            )}
             <button disabled={phase !== "idle"} onClick={start}>
               {phase === "idle" ? "Mark attendance" : "Please wait..."}
             </button>
@@ -228,6 +254,7 @@ function Home({ user }: any) {
       </div>
 
       <Exceptions supabase={supabase} />
+      <Passkeys supabase={supabase} />
     </div>
   );
 }

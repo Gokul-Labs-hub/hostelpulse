@@ -189,7 +189,10 @@ function NetworkTab({ supabase }: any) {
   const [label, setLabel] = useState("");
   const [msg, setMsg] = useState("");
   const [stats, setStats] = useState<any>(null);
-  const call = async (body: any) => (await supabase.functions.invoke("attendance", { body })).data;
+  const call = async (body: any) => {
+    const { data, error } = await supabase.functions.invoke("attendance", { body });
+    return error ? { failed: true } : data;
+  };
 
   async function load() {
     setInfo(await call({ action: "net_list" }));
@@ -217,7 +220,9 @@ function NetworkTab({ supabase }: any) {
     <>
       <div className="card">
         <h2>College network</h2>
-        <p className="note">Connect to the college Wi-Fi (not mobile data). The server currently sees you as: <b>{info?.ip || "..."}</b></p>
+        <p className="note">Connect to the college Wi-Fi (not mobile data). The server currently sees you as: <b>{info?.ip || (info ? "(not readable)" : "...")}</b></p>
+        {info?.failed && <p className="note">The server function did not answer correctly. Make sure you pasted and deployed the newest function code.</p>}
+        {info?.seen && !info.ip && <p className="note">Headers the server received: {JSON.stringify(info.seen)}</p>}
         <input placeholder="Label, for example Hostel floor 2" value={label} onChange={(e) => setLabel(e.target.value)} />
         <button onClick={learn}>Learn this network</button>
         <p className="note">Repeat from other places (hostel floors, academic block). If the number stays the same everywhere, one is enough.</p>
@@ -231,7 +236,6 @@ function NetworkTab({ supabase }: any) {
       <div className="card">
         <h2>Network check mode</h2>
         <select value={mode} onChange={(e) => saveMode(e.target.value)}>
-          <option value="simulated">simulated (demo only)</option>
           <option value="ip_shadow">ip_shadow (record only, no effect)</option>
           <option value="ip_enforce">ip_enforce (alert students off the college Wi-Fi)</option>
         </select>
