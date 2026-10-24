@@ -20,3 +20,6 @@ ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
 li { display: flex; justify-content: space-between; font-size: 14px; }
 .tabs { grid-auto-flow: column; }
 textarea { padding: 12px; border-radius: 10px; border: 1px solid #475569; background: #0f172a; color: inherit; font-size: 14px; font-family: monospace; }
+.who { display: grid; gap: 4px; padding: 10px 0; border-top: 1px solid #334155; font-size: 14px; }
+.actions { display: flex; gap: 8px; }
+button.small { padding: 8px 12px; font-size: 14px; }
