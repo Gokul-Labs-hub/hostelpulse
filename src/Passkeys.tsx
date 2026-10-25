@@ -28,7 +28,8 @@ export default function Passkeys({ supabase }: any) {
     }
   }
   async function remove(id: string) {
-    await supabase.from("passkeys").delete().eq("id", id);
+    const { data } = await supabase.functions.invoke("passkey", { body: { action: "remove", id } });
+    setMsg(data?.ok ? "Removed." : data?.message ?? "Could not remove this device.");
     load();
   }
 

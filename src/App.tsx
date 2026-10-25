@@ -5,10 +5,11 @@ import Admin from "./Admin";
 import Warden from "./Warden";
 import Exceptions from "./Exceptions";
 import Passkeys from "./Passkeys";
-import { startAuthentication } from "@simplewebauthn/browser";
+import { Gate } from "./Biometric";
 
 // The anon (publishable) key is safe in the browser: Row Level Security protects the data.
 // NEVER put the service_role / secret key in this project.
+// Staying signed in is fine: every time the app is opened, fingerprint or Face ID is asked again (see Biometric.tsx).
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
 
 export default function App() {
@@ -19,7 +20,7 @@ export default function App() {
     return () => data.subscription.unsubscribe();
   }, []);
   if (session === undefined) return <main><p className="note">Loading...</p></main>;
-  return <main>{session ? <Home user={session.user} /> : <Login />}</main>;
+  return <main>{session ? <Gate supabase={supabase}><Home user={session.user} /></Gate> : <Login />}</main>;
 }
 
 function Login() {
@@ -28,7 +29,14 @@ function Login() {
   const [step, setStep] = useState<"email" | "code">("email");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [cool, setCool] = useState(0);
   const clean = email.trim().toLowerCase();
+
+  useEffect(() => {
+    if (cool <= 0) return;
+    const t = setTimeout(() => setCool(cool - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cool]);
 
   async function sendCode() {
     if (!/^\S+@\S+\.\S+$/.test(clean)) return setMsg("Enter a valid email address.");
@@ -37,7 +45,8 @@ function Login() {
     // The same message is shown every time, so this form cannot be used to find out who is registered.
     await supabase.auth.signInWithOtp({ email: clean, options: { shouldCreateUser: true } });
     setStep("code");
-    setMsg("If this email is registered, a 6 digit code is on its way. It can take a minute.");
+    setCool(60);
+    setMsg("If this email is registered, a code is on its way. It can take a minute. Use the newest email.");
     setBusy(false);
   }
 
@@ -45,35 +54,17 @@ function Login() {
     setBusy(true);
     setMsg("");
     const { error } = await supabase.auth.verifyOtp({ email: clean, token: code.trim(), type: "email" });
-    if (error) setMsg("That code is not right or has expired. Try again, or go back and request a new one.");
+    if (error) setMsg("That code is not right or has expired. Check the newest email, or request a new code.");
     setBusy(false);
   }
 
   const google = () => supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
 
-  async function passkeySignIn() {
-    setMsg("");
-    try {
-      const { data: o } = await supabase.functions.invoke("passkey", { body: { action: "auth_options" } });
-      if (!o?.options) return setMsg("Could not start. Please try again.");
-      const response = await startAuthentication({ optionsJSON: o.options });
-      const { data: v } = await supabase.functions.invoke("passkey", { body: { action: "auth_verify", challenge_id: o.challenge_id, response } });
-      if (!v?.token_hash) return setMsg(v?.message ?? "Could not sign you in.");
-      const { error } = await supabase.auth.verifyOtp({ token_hash: v.token_hash, type: "magiclink" });
-      if (error) setMsg("Could not sign you in. Please try again.");
-    } catch {
-      setMsg("Fingerprint or Face ID was cancelled, or is not set up on this device. Sign in another way, then add it.");
-    }
-  }
-
   return (
     <div className="card">
       <h1>HostelPulse</h1>
-      <p className="note">Sign in with the email your warden registered for you.</p>
+      <p className="note">Sign in with the email your warden registered for you. You will then confirm with your fingerprint or Face ID.</p>
       <button className="light" onClick={google}>Continue with Google</button>
-      {typeof window !== "undefined" && window.PublicKeyCredential && (
-        <button className="light" onClick={passkeySignIn}>Use fingerprint or Face ID</button>
-      )}
       {step === "email" ? (
         <>
           <input type="email" autoComplete="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -81,9 +72,12 @@ function Login() {
         </>
       ) : (
         <>
-          <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="6 digit code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
-          <button disabled={busy || code.length !== 6} onClick={verify}>Sign in</button>
-          <button className="link" onClick={() => { setStep("email"); setCode(""); setMsg(""); }}>Use a different email</button>
+          <input inputMode="numeric" autoComplete="one-time-code" maxLength={10} placeholder="Code from your email" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+          <button disabled={busy || code.length < 6} onClick={verify}>Sign in</button>
+          <button className="link" disabled={busy || cool > 0} onClick={sendCode}>
+            {cool > 0 ? `Resend code in ${cool}s` : "Resend code"}
+          </button>
+          <button className="link" onClick={() => { setStep("email"); setCode(""); setMsg(""); setCool(0); }}>Use a different email</button>
         </>
       )}
       {msg && <p className="note">{msg}</p>}

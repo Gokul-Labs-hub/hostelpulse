@@ -109,12 +109,20 @@ function People({ supabase, me }: any) {
   const [rows, setRows] = useState<any[]>([]);
   const [q, setQ] = useState("");
   const load = async () => {
-    const { data } = await supabase.from("profiles").select("id, full_name, student_no, role").order("full_name");
+    const { data } = await supabase.from("profiles").select("id, full_name, student_no, role, biometric_exempt").order("full_name");
     setRows(data ?? []);
   };
   useEffect(() => { load(); }, []);
   async function setRole(id: string, role: string) {
     await supabase.from("profiles").update({ role }).eq("id", id);
+    load();
+  }
+  async function resetBio(id: string) {
+    if (!confirm("Remove this person's saved fingerprint or Face ID devices?")) return;
+    await supabase.rpc("admin_reset_biometric", { p_user: id });
+  }
+  async function toggleExempt(r: any) {
+    await supabase.from("profiles").update({ biometric_exempt: !r.biometric_exempt }).eq("id", r.id);
     load();
   }
   const shown = rows.filter((r) => `${r.full_name} ${r.student_no ?? ""}`.toLowerCase().includes(q.toLowerCase()));
@@ -130,6 +138,10 @@ function People({ supabase, me }: any) {
             <option value="warden">warden</option>
             <option value="admin">admin</option>
           </select>
+          <span className="actions">
+            <button className="link" onClick={() => resetBio(r.id)}>Reset fingerprint</button>
+            <button className="link" onClick={() => toggleExempt(r)}>{r.biometric_exempt ? "Exempt: on" : "Exempt: off"}</button>
+          </span>
         </label>
       ))}
     </div>
