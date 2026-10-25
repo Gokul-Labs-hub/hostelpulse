@@ -6,7 +6,7 @@ export default function Admin({ supabase, me }: any) {
   return (
     <div>
       <div className="card tabs">
-        {["roster", "hostel", "network", "qr", "people"].map((t) => (
+        {["roster", "hostel", "network", "qr", "risk", "people"].map((t) => (
           <button key={t} className={tab === t ? "" : "link"} onClick={() => setTab(t)}>{t}</button>
         ))}
       </div>
@@ -14,6 +14,7 @@ export default function Admin({ supabase, me }: any) {
       {tab === "hostel" && <HostelSettings supabase={supabase} />}
       {tab === "network" && <NetworkTab supabase={supabase} />}
       {tab === "qr" && <QrTab supabase={supabase} />}
+      {tab === "risk" && <RiskTab supabase={supabase} />}
       {tab === "people" && <People supabase={supabase} me={me} />}
     </div>
   );
@@ -253,6 +254,51 @@ function NetworkTab({ supabase }: any) {
         </select>
         {stats && <p className="note">Shadow results so far: {stats.yes} matched, {stats.no} not matched.</p>}
         <p className="note">Start with ip_shadow. Switch to ip_enforce when nearly everyone matches.</p>
+      </div>
+    </>
+  );
+}
+
+function RiskTab({ supabase }: any) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [report, setReport] = useState<any[]>([]);
+  const [msg, setMsg] = useState("");
+  const load = async () => {
+    const { data } = await supabase.from("risk_weights").select("key, points, label").order("key");
+    setRows(data ?? []);
+    const { data: r } = await supabase.rpc("signal_report");
+    setReport(r ?? []);
+  };
+  useEffect(() => { load(); }, []);
+  async function save(key: string, v: string) {
+    const n = Math.max(0, Math.min(100, Math.round(Number(v))));
+    const { error } = await supabase.from("risk_weights").update({ points: n }).eq("key", key);
+    setMsg(error ? error.message : "Saved.");
+    load();
+  }
+
+  return (
+    <>
+      <div className="card">
+        <h2>Risk points</h2>
+        <p className="note">Each unusual signal adds points. Below the first cutoff is low risk and is accepted. Between the cutoffs goes to a warden. Above the second cutoff needs extra verification. A flag is never proof of cheating.</p>
+        {rows.map((r) => (
+          <label key={r.key}>{r.label}
+            <input type="number" min={0} max={100} defaultValue={r.points} onBlur={(e) => save(r.key, e.target.value)} />
+          </label>
+        ))}
+        {msg && <p className="note">{msg}</p>}
+      </div>
+      <div className="card">
+        <h2>How each signal performed</h2>
+        <p className="note">Based on warden decisions. If wardens approve most attempts a signal flagged, it is raising false alarms, so lower its points. If they reject most, it is working.</p>
+        {report.length === 0 && <p className="note">No flagged attempts yet.</p>}
+        {report.map((s) => (
+          <div className="who" key={s.signal}>
+            <div className="who-top"><strong>{s.signal}</strong><span className="mono">{s.flagged} flagged</span></div>
+            <span className="note">Accepted automatically {s.auto_ok} · Approved by warden {s.approved} · Rejected {s.rejected} · Waiting {s.pending}</span>
+          </div>
+        ))}
       </div>
     </>
   );
