@@ -11,6 +11,7 @@ export default function Warden({ supabase }: any) {
   const [date, setDate] = useState(new Date().toLocaleDateString("en-CA"));
   const [rows, setRows] = useState<any[]>([]);
   const [q, setQ] = useState("");
+  const [filter, setFilter] = useState("all");
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
@@ -47,6 +48,12 @@ export default function Warden({ supabase }: any) {
   });
   const shown = rows
     .filter((r) => `${r.full_name} ${r.student_no ?? ""} ${r.room_no}`.toLowerCase().includes(q.toLowerCase()))
+    .filter((r) =>
+      filter === "all" ||
+      (filter === "review" && key(r) === "pending_review") ||
+      (filter === "absent" && (key(r) === "absent" || key(r) === "rejected")) ||
+      (filter === "present" && (key(r) === "present" || key(r) === "manual_present"))
+    )
     .sort((a, b) => order[key(a)] - order[key(b)]);
 
   function exportCsv() {
@@ -60,43 +67,66 @@ export default function Warden({ supabase }: any) {
     a.click();
   }
 
+  const absent = rows.length - present - review;
+  const chipFor = (r: any) => {
+    const k = key(r);
+    if (k === "present") return <span className="chip ok">Present</span>;
+    if (k === "manual_present") return <span className="chip ok">Present (warden)</span>;
+    if (k === "pending_review") return <span className="chip warn">Needs review</span>;
+    if (k === "rejected") return <span className="chip bad">Rejected</span>;
+    return <span className="chip bad">Absent</span>;
+  };
+
   return (
     <div>
       <div className="card">
-        <h2>Daily attendance</h2>
+        <p className="eyebrow">Daily attendance</p>
         <select value={hostel} onChange={(e) => setHostel(e.target.value)}>
           {hostels.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
         </select>
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        <p className="note">Present {present} of {rows.length} · Needs review {review} · Absent {rows.length - present - review}</p>
-        <button onClick={exportCsv}>Export CSV</button>
+        <div className="tiles">
+          <div className="tile"><b>{present}</b><span>Present</span></div>
+          <div className="tile"><b>{review}</b><span>Needs review</span></div>
+          <div className="tile"><b>{absent}</b><span>Absent</span></div>
+        </div>
+        <p className="note">{rows.length} residents on the list</p>
+        <button className="light" onClick={exportCsv}>Export CSV</button>
       </div>
 
       <div className="card">
         <h2>By floor</h2>
-        <ul>
-          {Object.keys(floors).map((f) => (
-            <li key={f}><span>Floor {f}</span><span>{floors[f].present} / {floors[f].total}</span></li>
-          ))}
-        </ul>
+        {Object.keys(floors).map((f) => (
+          <div className="floor" key={f}>
+            <span>Floor {f}</span>
+            <div className="bar-track">
+              <div className="bar-fill" style={{ width: `${floors[f].total ? (100 * floors[f].present) / floors[f].total : 0}%` }} />
+            </div>
+            <span className="mono">{floors[f].present}/{floors[f].total}</span>
+          </div>
+        ))}
+        {Object.keys(floors).length === 0 && <p className="note">No residents on the list yet.</p>}
       </div>
 
       <ExceptionQueue supabase={supabase} onDecided={load} />
 
       <div className="card">
         <input placeholder="Search name, student number or room" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="pills">
+          {[["all", "All"], ["review", "Needs review"], ["absent", "Absent"], ["present", "Present"]].map(([k, l]) => (
+            <button key={k} className={"pill" + (filter === k ? " on" : "")} onClick={() => setFilter(k)}>{l}</button>
+          ))}
+        </div>
         {shown.map((r) => (
           <div className="who" key={r.student_id}>
-            <span>{r.full_name || "(no name)"} · {r.student_no ?? "-"} · Room {r.room_no}</span>
-            <span className="note">
-              {label[key(r)] ?? "absent"}{r.level ? ` · risk: ${r.level}` : ""}
-            </span>
+            <div className="who-top"><strong>{r.full_name || "(no name)"}</strong>{chipFor(r)}</div>
+            <span className="note">{r.student_no ?? "-"} · Room {r.room_no}{r.level ? ` · risk ${r.level}` : ""}</span>
             {key(r) === "pending_review" && (
               <>
                 <span className="note">{(r.reasons ?? []).join(" · ")}</span>
                 <div className="actions">
                   <button className="small" onClick={() => decide(r, "manual_present")}>Approve</button>
-                  <button className="small" onClick={() => decide(r, "rejected")}>Reject</button>
+                  <button className="small light" onClick={() => decide(r, "rejected")}>Reject</button>
                 </div>
               </>
             )}
@@ -107,6 +137,7 @@ export default function Warden({ supabase }: any) {
             )}
           </div>
         ))}
+        {shown.length === 0 && <p className="note">Nobody matches.</p>}
       </div>
       {msg && <p className="note">{msg}</p>}
     </div>

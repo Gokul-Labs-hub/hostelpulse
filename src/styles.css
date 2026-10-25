@@ -103,3 +103,19 @@ li { display: flex; justify-content: space-between; align-items: center; font-si
   .card { background: none; border: 0; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* warden and admin screens */
+.tabs { gap: 6px; padding: 8px; }
+.tabs button { min-height: 40px; font-size: 14px; padding: 8px 6px; text-transform: capitalize; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.tile { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: grid; gap: 2px; }
+.tile b { font: 600 28px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.tile span { color: var(--muted); font-size: 12px; }
+.floor { display: grid; grid-template-columns: 64px 1fr 56px; align-items: center; gap: 10px; font-size: 14px; }
+.bar-track { height: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.bar-fill { height: 100%; background: var(--lamp); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-align: right; color: var(--muted); }
+.pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.pill { min-height: 36px; padding: 6px 14px; font-size: 13px; background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; font-weight: 500; }
+.pill.on { background: var(--lamp); color: var(--lamp-ink); border-color: var(--lamp); }
+.who-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
