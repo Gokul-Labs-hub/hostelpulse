@@ -6,6 +6,7 @@ import Warden from "./Warden";
 import Exceptions from "./Exceptions";
 import Passkeys from "./Passkeys";
 import { Gate } from "./Biometric";
+import { Brand, Facade, Ring, Icon } from "./ui";
 
 // The anon (publishable) key is safe in the browser: Row Level Security protects the data.
 // NEVER put the service_role / secret key in this project.
@@ -62,6 +63,7 @@ function Login() {
 
   return (
     <div className="card">
+      <Facade />
       <h1>HostelPulse</h1>
       <p className="note">Sign in with the email your warden registered for you. You will then confirm with your fingerprint or Face ID.</p>
       <button className="light" onClick={google}>Continue with Google</button>
@@ -90,17 +92,23 @@ function Login() {
 function Home({ user }: any) {
   const [phase, setPhase] = useState("idle"); // idle | locating | scanning | sending
   const [result, setResult] = useState<any>(null);
-  const [gpsNote, setGpsNote] = useState("");
   const [history, setHistory] = useState<any[]>([]);
   const [totalDays, setTotalDays] = useState(0);
-  const attempt = useRef<any>(null);
-  const gps = useRef<any>(null);
-  const video = useRef<HTMLVideoElement>(null);
+  const [nights, setNights] = useState<any[]>([]);
+  const [info, setInfo] = useState<any>(null);
+  const [gpsNote, setGpsNote] = useState("");
   const [role, setRole] = useState("student");
   const [showAdmin, setShowAdmin] = useState(false);
   const [showWarden, setShowWarden] = useState(false);
+  const [, tick] = useState(0);
+  const attempt = useRef<any>(null);
+  const gps = useRef<any>(null);
+  const video = useRef<HTMLVideoElement>(null);
+
   useEffect(() => {
     supabase.from("profiles").select("role").eq("id", user.id).single().then(({ data }) => setRole(data?.role ?? "student"));
+    const t = setInterval(() => tick((x) => x + 1), 30000); // keeps the "opens at" text fresh
+    return () => clearInterval(t);
   }, []);
 
   async function load() {
@@ -109,11 +117,18 @@ function Home({ user }: any) {
       .select("status, created_at, attendance_windows(for_date)")
       .order("created_at", { ascending: false });
     setHistory(data ?? []);
-    const { count } = await supabase
-      .from("attendance_windows")
-      .select("id", { count: "exact", head: true })
-      .lte("for_date", new Date().toISOString().slice(0, 10));
+    const today = new Date().toLocaleDateString("en-CA");
+    const { count } = await supabase.from("attendance_windows").select("id", { count: "exact", head: true }).lte("for_date", today);
     setTotalDays(count ?? 0);
+    const from = new Date(Date.now() - 13 * 864e5).toLocaleDateString("en-CA");
+    const { data: w } = await supabase.from("attendance_windows").select("for_date").gte("for_date", from).order("for_date");
+    setNights(w ?? []);
+    const { data: a } = await supabase
+      .from("assignments")
+      .select("rooms(floor, room_no, hostels(name, window_start, window_end, tz))")
+      .is("valid_to", null)
+      .maybeSingle();
+    setInfo((a as any)?.rooms ?? null);
   }
   useEffect(() => { load(); }, []);
 
@@ -148,13 +163,7 @@ function Home({ user }: any) {
   async function submit(qr: string) {
     setPhase("sending");
     const { data, error } = await supabase.functions.invoke("attendance", {
-      body: {
-        action: "submit",
-        attempt_id: attempt.current.attempt_id,
-        nonce: attempt.current.nonce,
-        qr,
-        gps: gps.current,
-      },
+      body: { action: "submit", attempt_id: attempt.current.attempt_id, nonce: attempt.current.nonce, qr, gps: gps.current },
     });
     setResult(error ? { message: "Could not submit. Please try again." } : data);
     setPhase("idle");
@@ -173,7 +182,7 @@ function Home({ user }: any) {
         scanner.stop();
         submit(r.data);
       },
-      { returnDetailedScanResult: true, preferredCamera: "environment", highlightScanRegion: true }
+      { returnDetailedScanResult: true, preferredCamera: "environment", highlightScanRegion: false }
     );
     scanner.start().catch(() => {
       setResult({ message: "Camera permission is needed to scan the QR code." });
@@ -182,75 +191,125 @@ function Home({ user }: any) {
     return () => scanner.destroy();
   }, [phase]);
 
+  const staff = role === "warden" || role === "admin";
   if (showWarden)
     return (
       <div>
-        <header>
-          <span>Warden</span>
-          <button className="link" onClick={() => setShowWarden(false)}>Back</button>
-        </header>
+        <div className="bar"><Brand /><span className="title">Warden</span><span className="bar-actions"><button className="link" onClick={() => setShowWarden(false)}>Back</button></span></div>
         <Warden supabase={supabase} />
       </div>
     );
-
   if (showAdmin)
     return (
       <div>
-        <header>
-          <span>Admin</span>
-          <button className="link" onClick={() => setShowAdmin(false)}>Back</button>
-        </header>
+        <div className="bar"><Brand /><span className="title">Admin</span><span className="bar-actions"><button className="link" onClick={() => setShowAdmin(false)}>Back</button></span></div>
         <Admin supabase={supabase} me={user.id} />
       </div>
     );
 
   const present = history.filter((r) => ["present", "manual_present"].includes(r.status)).length;
-  const pct = totalDays ? Math.round((100 * present) / totalDays) : 0;
+  const pct = totalDays ? Math.min(100, Math.round((100 * present) / totalDays)) : 0;
+  const byDate: any = {};
+  history.forEach((r) => {
+    const d = r.attendance_windows?.for_date;
+    if (d) byDate[d] = r.status;
+  });
+  const dates = Array.from(new Set(nights.map((n: any) => n.for_date))) as string[];
+
+  const h = info?.hostels;
+  const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  const clock = (t: string) => {
+    const hr = Number(t.slice(0, 2));
+    return `${((hr + 11) % 12) + 1}:${t.slice(3, 5)} ${hr < 12 ? "AM" : "PM"}`;
+  };
+  let when = "Welcome";
+  let tonight: string | undefined;
+  if (h) {
+    const hm = new Date().toLocaleTimeString("en-GB", { timeZone: h.tz, hourCycle: "h23", hour: "2-digit", minute: "2-digit" });
+    const n = mins(hm), a = mins(h.window_start), b = mins(h.window_end);
+    when = n < a ? `Opens at ${clock(h.window_start)}` : n < b ? `Open until ${clock(h.window_end)}` : "Closed for tonight";
+    tonight = byDate[new Date().toLocaleDateString("en-CA", { timeZone: h.tz })];
+  }
+  const done = tonight === "present" || tonight === "manual_present";
+  const cls = (s?: string) => (s === "present" || s === "manual_present" ? "on" : s === "pending_review" ? "review" : "off");
 
   return (
     <div>
-      <header>
-        <span>{user.email}</span>
-        {(role === "warden" || role === "admin") && <button className="link" onClick={() => setShowWarden(true)}>Warden</button>}
-        {role === "admin" && <button className="link" onClick={() => setShowAdmin(true)}>Admin</button>}
-        <button className="link" onClick={() => supabase.auth.signOut()}>Sign out</button>
-      </header>
+      <div className="bar">
+        <Brand />
+        <span className="title">HostelPulse</span>
+        <span className="bar-actions">
+          {staff && <button className="link" onClick={() => setShowWarden(true)}>Warden</button>}
+          {role === "admin" && <button className="link" onClick={() => setShowAdmin(true)}>Admin</button>}
+          <button className="link" onClick={() => supabase.auth.signOut()}>Sign out</button>
+        </span>
+      </div>
 
-      <div className="card">
-        <h2>Tonight's attendance</h2>
+      <section className="card">
+        <p className="eyebrow">Tonight</p>
+        <h1>{when}</h1>
+        {info ? (
+          <p className="note">{h?.name} · Floor {info.floor} · Room {info.room_no}</p>
+        ) : (
+          <p className="note">No room is assigned to your account yet. Ask your warden.</p>
+        )}
+        {done && <span className="chip ok"><Icon name="check" /> Attendance recorded</span>}
+        {tonight === "pending_review" && <span className="chip warn"><Icon name="clock" /> With your warden for review</span>}
+        {tonight === "rejected" && <span className="chip bad">Not accepted, please see your warden</span>}
+
         {phase === "scanning" ? (
           <>
-            <video ref={video} playsInline muted />
+            <div className="scan"><video ref={video} playsInline muted /></div>
             <p className="note">Point the camera at the hostel QR code.</p>
             <button className="link" onClick={() => setPhase("idle")}>Cancel</button>
           </>
         ) : (
           <>
-            <button disabled={phase !== "idle"} onClick={start}>
-              {phase === "idle" ? "Mark attendance" : "Please wait..."}
+            <button disabled={phase !== "idle" || done} onClick={start}>
+              {phase === "idle" ? (done ? "Done for tonight" : "Mark attendance") : "Please wait..."}
             </button>
-            <p className="note">To confirm your attendance, this app checks your location and network connection.</p>
+            <div className="checks">
+              <span className="chip"><Icon name="camera" /> QR scan</span>
+              <span className="chip"><Icon name="pin" /> Location</span>
+              <span className="chip"><Icon name="wifi" /> College Wi-Fi</span>
+            </div>
+            <p className="note">To confirm your attendance, this app checks your location and network connection. Be on the college Wi-Fi when you start.</p>
           </>
         )}
         {result && <p className={"result " + (result.level ?? "")}>{result.message}</p>}
         {gpsNote && <p className="note">{gpsNote}</p>}
-      </div>
+      </section>
 
-      <div className="card">
-        <h2>My attendance: {pct}%</h2>
-        <p className="note">{present} present out of {totalDays} days</p>
-        <ul>
-          {history.slice(0, 14).map((r, i) => (
-            <li key={i}>
-              <span>{r.attendance_windows?.for_date}</span>
-              <span>{r.status.replace("_", " ")}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
+      <section className="card">
+        <div className="overview">
+          <Ring pct={pct} />
+          <div>
+            <h2>Your attendance</h2>
+            <p className="note">{present} of {totalDays} nights</p>
+          </div>
+        </div>
+        {dates.length > 0 && (
+          <>
+            <div className="nights">
+              {dates.map((d) => (
+                <div className="night-wrap" key={d}>
+                  <div className={"night " + cls(byDate[d])} role="img" aria-label={`${d}: ${byDate[d] ? byDate[d].replace("_", " ") : "not recorded"}`} />
+                  {d.slice(8)}
+                </div>
+              ))}
+            </div>
+            <div className="legend">
+              <span><i className="dot on" />Present</span>
+              <span><i className="dot review" />Needs review</span>
+              <span><i className="dot off" />Not recorded</span>
+            </div>
+          </>
+        )}
+      </section>
 
       <Exceptions supabase={supabase} />
       <Passkeys supabase={supabase} />
+      <p className="foot"><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></p>
     </div>
   );
 }

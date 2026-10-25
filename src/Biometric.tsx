@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
+import { Brand } from "./ui";
 
 // Signs in with a saved fingerprint or Face ID. Returns an error message, or null when it worked.
 export async function passkeyLogin(supabase: any): Promise<string | null> {
@@ -78,6 +79,7 @@ export function Gate({ supabase, children }: any) {
   if (st.failed)
     return (
       <div className="card">
+        <Brand size={40} />
         <h2>Could not check your sign-in</h2>
         <p className="note">Check your connection and try again.</p>
         <button onClick={refresh}>Try again</button>
@@ -90,6 +92,7 @@ export function Gate({ supabase, children }: any) {
   if (!st.has_passkeys)
     return (
       <div className="card">
+        <Brand size={40} />
         <h2>Set up fingerprint or Face ID</h2>
         <p className="note">This is a one-time step on this phone. From now on you will use it to open HostelPulse. Your fingerprint or face never leaves your phone. If your phone has no fingerprint or Face ID, your screen lock works too.</p>
         {supported ? (
@@ -104,7 +107,8 @@ export function Gate({ supabase, children }: any) {
 
   return (
     <div className="card">
-      <h2>Verify it is you</h2>
+      <Brand size={40} />
+        <h2>Verify it is you</h2>
       <p className="note">Use the same fingerprint or Face ID you registered when you first signed in.</p>
       <button disabled={busy} onClick={unlock}>Verify</button>
       {msg && <p className="note">{msg}</p>}
